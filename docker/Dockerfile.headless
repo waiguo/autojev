@@ -8,8 +8,12 @@
 # disabled, which is a much larger change than this patch.
 FROM ubuntu:22.04
 
+# These three are exactly the Depends: of upstream's own .deb (v0.1.2). The tray-icon
+# feature links libayatana-appindicator3 even in headless mode, so dropping it means the
+# process fails to start. sqlite3 is for inspecting/configuring the mounted database.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libwebkit2gtk-4.1-0 libgtk-3-0 ca-certificates sqlite3 \
+      libayatana-appindicator3-1 libwebkit2gtk-4.1-0 libgtk-3-0 \
+      ca-certificates sqlite3 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY autojev /usr/local/bin/autojev

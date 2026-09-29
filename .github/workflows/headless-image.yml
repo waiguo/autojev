@@ -10,11 +10,7 @@ name: headless-image
 on:
   workflow_dispatch:
   push:
-    branches: [main, headless]
-    paths:
-      - 'src-tauri/**'
-      - 'docker/**'
-      - '.github/workflows/headless-image.yml'
+    branches: [headless]
 
 permissions:
   contents: read
@@ -57,6 +53,31 @@ jobs:
 
       - name: Build runtime image
         run: docker build -f docker/Dockerfile.headless -t "$IMAGE_TAG:${{ github.sha }}" .image
+
+      # Upstream's .deb Depends: line is generated from ldd by tauri, which makes it the
+      # authority on what the binary needs. Diffing against it catches a runtime library
+      # added upstream that our Dockerfile would otherwise be missing on the next release.
+      - name: Check runtime deps against upstream .deb
+        run: |
+          set -eu
+          ver=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          url="https://github.com/thinkany-ai/autojev/releases/download/v${ver}/AutoJev_${ver}_amd64.deb"
+          if ! curl -fsL -o upstream.deb "$url"; then
+            echo "::warning::no upstream .deb for v${ver}; skipping the dependency check"
+            exit 0
+          fi
+          depends=$(ar p upstream.deb control.tar.gz | tar xzO ./control \
+            | sed -n 's/^Depends: *//p' | tr -d ' ' | tr ',' '\n' \
+            | sed 's/(.*)//' | grep -v '^$' | sort -u)
+          have=$(docker run --rm --entrypoint dpkg "$IMAGE_TAG:${{ github.sha }}" -l 2>/dev/null \
+            | awk '/^ii/{print $2}' | sed 's/:amd64$//' | sort -u)
+          missing=$(comm -23 <(printf '%s\n' "$depends") <(printf '%s\n' "$have") || true)
+          echo "upstream Depends: $(echo $depends)"
+          if [ -n "$missing" ]; then
+            echo "::error::runtime image is missing: $(echo $missing) — add them to docker/Dockerfile.headless"
+            exit 1
+          fi
+          echo "runtime libraries satisfy upstream v${ver}"
 
       - name: Save image for offline load
         run: |
