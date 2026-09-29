@@ -79,6 +79,26 @@ jobs:
           fi
           echo "runtime libraries satisfy upstream v${ver}"
 
+      # Boot the thing. A missing runtime library or a Tauri assumption that only holds
+      # inside a GUI process shows up here, not on the target host. Any non-200 fails the job.
+      - name: Smoke test the gateway
+        run: |
+          set -e
+          docker run -d --name smoke -p 9527:9527 "$IMAGE_TAG:${{ github.sha }}"
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:9527/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          echo "--- /health ---"
+          curl -fsS --max-time 10 http://127.0.0.1:9527/health
+          echo
+          echo "--- /v1/models ---"
+          curl -fsS --max-time 10 http://127.0.0.1:9527/v1/models
+          echo
+          echo "--- container log ---"
+          docker logs smoke 2>&1 | tail -20
+          docker rm -f smoke >/dev/null
+
       - name: Save image for offline load
         run: |
           docker save "$IMAGE_TAG:${{ github.sha }}" | gzip -9 > autojev-headless-image.tar.gz
