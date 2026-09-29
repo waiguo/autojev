@@ -1,4 +1,5 @@
 mod debug_curl;
+pub mod headless;
 mod cost;
 mod performance;
 mod agents;

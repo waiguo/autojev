@@ -1,0 +1,70 @@
+name: headless-image
+
+# Builds the headless gateway binary on GitHub's runners and packages it as a
+# `docker save` tarball, so the target host never has to compile anything:
+#
+#   docker load -i autojev-headless-image.tar.gz
+#
+# The desktop (Tauri) build in release.yml is untouched — this job skips the frontend
+# entirely and compiles the crate directly, so no pnpm/node and no signing key needed.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, headless]
+    paths:
+      - 'src-tauri/**'
+      - 'docker/**'
+      - '.github/workflows/headless-image.yml'
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_TAG: autojev-headless
+
+jobs:
+  image:
+    # Pinned to 22.04 so the produced glibc matches the ubuntu:22.04 runtime image.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libxdo-dev file
+
+      - name: Build release binary
+        run: |
+          # generate_context! embeds the frontendDist directory at compile time, so it must
+          # exist. Headless never serves it — a placeholder avoids building the React app.
+          mkdir -p dist
+          cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Assemble image context
+        run: |
+          strip src-tauri/target/release/autojev || true
+          mkdir -p .image
+          cp src-tauri/target/release/autojev .image/autojev
+
+      - name: Build runtime image
+        run: docker build -f docker/Dockerfile.headless -t "$IMAGE_TAG:${{ github.sha }}" .image
+
+      - name: Save image for offline load
+        run: |
+          docker save "$IMAGE_TAG:${{ github.sha }}" | gzip -9 > autojev-headless-image.tar.gz
+          ls -lh autojev-headless-image.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autojev-headless-image
+          path: autojev-headless-image.tar.gz
+          retention-days: 14

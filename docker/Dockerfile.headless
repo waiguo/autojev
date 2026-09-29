@@ -1,0 +1,22 @@
+# Runtime image for the headless AutoJev gateway.
+#
+# Built by .github/workflows/headless-image.yml from a context holding just the stripped
+# `autojev` binary — the compile toolchain never reaches the target host.
+#
+# WebKitGTK stays linked even though this mode never draws a window, so those libraries are
+# still required at runtime. Dropping them means building Tauri with the `wry` feature
+# disabled, which is a much larger change than this patch.
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libwebkit2gtk-4.1-0 libgtk-3-0 ca-certificates sqlite3 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY autojev /usr/local/bin/autojev
+
+# Config + provider credentials (SQLite) live here. Mount a volume or a copied
+# ~/.autojev from a desktop install to reuse its providers, models and routes.
+VOLUME /root/.autojev
+
+EXPOSE 9527
+ENTRYPOINT ["/usr/local/bin/autojev", "--headless"]

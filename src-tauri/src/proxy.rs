@@ -48,8 +48,13 @@ impl ProxyHandle {
 }
 
 pub async fn start(store: Arc<ConfigStore>) -> anyhow::Result<ProxyHandle> {
-    let port = store.read().port;
-    let listener = TcpListener::bind(("127.0.0.1", port)).await?;
+    start_on(store, "127.0.0.1").await
+}
+
+/// Bind the gateway to an explicit interface. The desktop app keeps using [`start`],
+/// which stays on loopback; a server deployment passes its own host (usually 0.0.0.0).
+pub async fn start_on(store: Arc<ConfigStore>, host: &str) -> anyhow::Result<ProxyHandle> {
+    let listener = TcpListener::bind((host, store.read().port)).await?;
     let circuit_health = crate::resilience::Health::default();
     let client = store.read().gateway.client()?;
     let context = ProxyContext {
